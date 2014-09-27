@@ -26,4 +26,9 @@ int main()
     out = prefix_sum_naive(in, LEN);
     for (int i = 0; i < LEN; ++i) { printf(" %2d", out[i]); } printf("\n");
     delete[] out;
+
+    printf("** OUTPUT prefix_sum **\n");
+    out = prefix_sum(in, LEN);
+    for (int i = 0; i < LEN; ++i) { printf(" %2d", out[i]); } printf("\n");
+    delete[] out;
 }

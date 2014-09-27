@@ -1,4 +1,4 @@
-EXEC := "build/CIS565_PROJ_0"
+EXEC := "build/main"
 
 .PHONY: all debug release run run-debug format clean
 
