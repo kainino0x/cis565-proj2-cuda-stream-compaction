@@ -1,4 +1,4 @@
 #pragma once
 
 
-int *prefix_sum_cpu(int len, int *in);
+int *prefix_sum_cpu(const int len, const int *in);

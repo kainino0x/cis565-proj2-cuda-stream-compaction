@@ -3,7 +3,7 @@
 #include "compaction.h"
 #include "cuda_helpers.h"
 
-#define BLOCK_SIZE 8
+#define BLOCK_SIZE 256
 
 
 inline int ilog2(int x)
@@ -22,10 +22,11 @@ inline int ilog2ceil(int x)
 }
 
 
-__global__ void prefix_sum_naive_inner(const int len, const int d, const int *in, int *out)
+__global__ void prefix_sum_naive_inner(
+        const int len, const int bs, const int d, const int *in, int *out)
 {
-    int k = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int k1 = k - (1 << d);
+    const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+    const int k1 = ((k / bs) - (1 << d)) * bs + (bs - 1);
     if (k < len) {
         if (k1 >= 0) {
             out[k] = in[k] + in[k1];
@@ -59,7 +60,7 @@ int *prefix_sum_naive(const int len, const int *in)
     for (int d = 0; d < dmax; ++d) {
         iout ^= 1;
         prefix_sum_naive_inner<<<BS, TPB>>>(
-                len, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
+                len, 1, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
     CHECK_ERROR("prefix_sum_naive_inner");
 
@@ -82,9 +83,9 @@ __global__ void prefix_sum_inner_shared(
 {
     __shared__ int tmp[2][BLOCK_SIZE];
 
-    int t = threadIdx.x;
-    int boff = blockIdx.x * blockDim.x;
-    int k = boff + t;
+    const int t = threadIdx.x;
+    const int boff = blockIdx.x * blockDim.x;
+    const int k = boff + t;
 
     // Copy input to shared memory
     tmp[0][t] = in[k];
@@ -114,15 +115,18 @@ __global__ void prefix_sum_inner_shared(
 }
 
 __global__ void prefix_sum_inner_global(
-        const int len, const int bs, const int *in, int *out)
+        const int len, const int chunk, const int *in, int *out)
 {
-    int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+    const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (k < len) {
-        int sum = in[k];
-        for (int i = bs - 1; i < k; i += bs) {
-            sum += in[i];
+        // Add every `size` elements (e.g. [7], [15], ...) to the `size`
+        // elements after them
+        if (k >= chunk) {
+            int iadd = (k / chunk) * chunk - 1;
+            out[k] = in[k] + in[iadd];
+        } else {
+            out[k] = in[k];
         }
-        out[k] = sum;
     }
 }
 
@@ -150,12 +154,18 @@ int *prefix_sum(const int len, const int *in)
     CHECK_ERROR("prefix_sum_inner_shared");
 
     // Finish off globally
-    prefix_sum_inner_global<<<BS, TPB>>>(len, BLOCK_SIZE, dev_arrs[1], dev_arrs[0]);
+    int iout = 1;  // init to i_in then it gets flipped
+    const int dmax = ilog2ceil((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    for (int d = 0; d < dmax; ++d) {
+        iout ^= 1;
+        prefix_sum_naive_inner<<<BS, TPB>>>(
+                len, BLOCK_SIZE, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
+    }
     CHECK_ERROR("prefix_sum_inner_global");
 
     // Copy the result value back to the CPU
     out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[0], (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
 
     cudaFree(dev_arrs[0]);
