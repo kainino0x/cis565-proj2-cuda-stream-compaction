@@ -3,7 +3,7 @@
 #include "compaction.h"
 #include "cuda_helpers.h"
 
-#define BLOCK_SIZE 256
+float timing = 0;
 
 
 inline int ilog2(int x)
@@ -74,7 +74,7 @@ int *prefix_sum_naive(const int len, const int *in)
     cudaEventSynchronize(ev1);
     float t;
     cudaEventElapsedTime(&t, ev0, ev1);
-    printf("%s: %fms\n", __func__, t);
+    timing += t;
 #endif
     CHECK_ERROR("prefix_sum_naive_inner");
 
@@ -128,22 +128,11 @@ __global__ void prefix_sum_inner_shared(
     // And the rest needs to be done globally after this completes.
 }
 
-__global__ void prefix_sum_inner_global(
-        const int len, const int chunk, const int *in, int *out)
-{
-    const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (k < len) {
-        // Add every `size` elements (e.g. [7], [15], ...) to the `size`
-        // elements after them
-        if (k >= chunk) {
-            int iadd = (k / chunk) * chunk - 1;
-            out[k] = in[k] + in[iadd];
-        } else {
-            out[k] = in[k];
-        }
-    }
-}
-
+/// Prefix sum implementation using shared memory.
+/// Currently this is kind of dumb: it takes CPU memory, copies it,
+/// then allocates more CPU memory and copies the result back.
+/// Later I'll need to factor some of that out so I can actually use this
+/// algorithm in a bigger GPU pipeline.
 int *prefix_sum(const int len, const int *in)
 {
     const dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
@@ -187,7 +176,7 @@ int *prefix_sum(const int len, const int *in)
     cudaEventSynchronize(ev1);
     float t;
     cudaEventElapsedTime(&t, ev0, ev1);
-    printf("%s: %fms\n", __func__, t);
+    timing += t;
 #endif
     CHECK_ERROR("prefix_sum_inner_global");
 
