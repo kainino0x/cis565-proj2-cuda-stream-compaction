@@ -23,7 +23,7 @@ inline int ilog2ceil(int x)
 
 
 __global__ void prefix_sum_naive_inner(
-        const int len, const int bs, const int d, const int *in, int *out)
+        const int len, const int bs, const int d, const float *in, float *out)
 {
     const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
     const int k1 = ((k / bs) - (1 << d)) * bs + (bs - 1);
@@ -36,22 +36,22 @@ __global__ void prefix_sum_naive_inner(
     }
 }
 
-int *prefix_sum_naive(const int len, const int *in)
+float *prefix_sum_naive(const int len, const float *in)
 {
     dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 TPB(BLOCK_SIZE);
 
     // Output host array
-    int *out = new int[len];
+    float *out = new float[len];
 
     // Create two arrays and alternate between them when calculating
-    int *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], len * sizeof(int));
-    cudaMalloc(&dev_arrs[1], len * sizeof(int));
+    float *dev_arrs[2];
+    cudaMalloc(&dev_arrs[0], len * sizeof(float));
+    cudaMalloc(&dev_arrs[1], len * sizeof(float));
     CHECK_ERROR("malloc");
 
     // Copy input values to GPU
-    cudaMemcpy(dev_arrs[0], in, len * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_arrs[0], in, len * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_ERROR("input memcpy");
 
     // Do each of the log(n) steps as a separate kernel call
@@ -80,7 +80,7 @@ int *prefix_sum_naive(const int len, const int *in)
 
     // Copy the result value back to the CPU
     out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(int),
+    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(float),
             cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
 
@@ -92,7 +92,7 @@ int *prefix_sum_naive(const int len, const int *in)
 }
 
 
-__global__ void prefix_sum_inner(const int len, const int *in, int *out)
+__global__ void prefix_sum_inner(const int len, const float *in, float *out)
 {
 }
 
@@ -101,29 +101,30 @@ __global__ void prefix_sum_inner(const int len, const int *in, int *out)
 /// then allocates more CPU memory and copies the result back.
 /// Later I'll need to factor some of that out so I can actually use this
 /// algorithm in a bigger GPU pipeline.
-int *prefix_sum(const int len, const int *in)
+float *prefix_sum(const int len, const float *in)
 {
     const dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     const dim3 TPB(BLOCK_SIZE);
 
     // Output host array
-    int *out = new int[len];
+    float *out = new float[len];
 
     // Create arrays for input and output
-    int *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], len * sizeof(int));
-    cudaMalloc(&dev_arrs[1], len * sizeof(int));
+    float *dev_arrs[2];
+    cudaMalloc(&dev_arrs[0], len * sizeof(float));
+    cudaMalloc(&dev_arrs[1], len * sizeof(float));
     CHECK_ERROR("malloc");
 
     // Copy input values to GPU
-    cudaMemcpy(dev_arrs[0], in, len * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_arrs[0], in, len * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_ERROR("input memcpy");
 
     // TODO
+    int iout = 0;
 
     // Copy the result value back to the CPU
     out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(float), cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
 
     cudaFree(dev_arrs[0]);
