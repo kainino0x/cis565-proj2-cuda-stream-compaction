@@ -18,17 +18,17 @@ int main()
     for (int i = 0; i < LEN; ++i) { printf(" %2d", in[i]); } printf("\n");
 
     printf("** OUTPUT prefix_sum_cpu **\n");
-    out = prefix_sum_cpu(in, LEN);
+    out = prefix_sum_cpu(LEN, in);
     for (int i = 0; i < LEN; ++i) { printf(" %2d", out[i]); } printf("\n");
     delete[] out;
 
     printf("** OUTPUT prefix_sum_naive **\n");
-    out = prefix_sum_naive(in, LEN);
+    out = prefix_sum_naive(LEN, in);
     for (int i = 0; i < LEN; ++i) { printf(" %2d", out[i]); } printf("\n");
     delete[] out;
 
     printf("** OUTPUT prefix_sum **\n");
-    out = prefix_sum(in, LEN);
+    out = prefix_sum(LEN, in);
     for (int i = 0; i < LEN; ++i) { printf(" %2d", out[i]); } printf("\n");
     delete[] out;
 }

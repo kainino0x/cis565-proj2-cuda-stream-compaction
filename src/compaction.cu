@@ -3,7 +3,23 @@
 #include "compaction.h"
 #include "cuda_helpers.h"
 
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE 8
+
+
+inline int ilog2(int x)
+{
+    int lg = 0;
+    while (x >>= 1)
+    {
+        ++lg;
+    }
+    return lg;
+}
+
+inline int ilog2ceil(int x)
+{
+    return ilog2(x - 1) + 1;
+}
 
 
 __global__ void prefix_sum_naive_inner(const int len, const int d, const int *in, int *out)
@@ -19,7 +35,7 @@ __global__ void prefix_sum_naive_inner(const int len, const int d, const int *in
     }
 }
 
-int *prefix_sum_naive(const int *in, const int len)
+int *prefix_sum_naive(const int len, const int *in)
 {
     dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 TPB(BLOCK_SIZE);
@@ -34,14 +50,14 @@ int *prefix_sum_naive(const int *in, const int len)
     CHECK_ERROR("malloc");
 
     // Copy input values to GPU
-    cudaMemcpy(dev_arrs[1], in, len * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_arrs[0], in, len * sizeof(int), cudaMemcpyHostToDevice);
     CHECK_ERROR("input memcpy");
 
     // Do each of the log(n) steps as a separate kernel call
-    int iout = 0;
-    const int dmax = ceil(log2((float) len));
+    int iout = 0;  // init to i_in then it gets flipped
+    const int dmax = ilog2ceil(len);
     for (int d = 0; d < dmax; ++d) {
-        iout = d & 1;
+        iout ^= 1;
         prefix_sum_naive_inner<<<BS, TPB>>>(
                 len, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
@@ -49,49 +65,69 @@ int *prefix_sum_naive(const int *in, const int len)
 
     // Copy the result value back to the CPU
     out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(int),
+            cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
+
+    cudaFree(dev_arrs[0]);
+    cudaFree(dev_arrs[1]);
+    CHECK_ERROR("free");
 
     return out;
 }
 
 
-__global__ void prefix_sum_inner(const int len, const int dmax, const int *in, int *out)
+__global__ void prefix_sum_inner_shared(
+        const int len, const int blockdmax, const int *in, int *out)
 {
     __shared__ int tmp[2][BLOCK_SIZE];
 
     int t = threadIdx.x;
-    int k = (blockIdx.x * blockDim.x) + t;
+    int boff = blockIdx.x * blockDim.x;
+    int k = boff + t;
 
-    // Copy `in` into `tmp[1]`
-    tmp[1][t] = in[k];
+    // Copy input to shared memory
+    tmp[0][t] = in[k];
     __syncthreads();
 
+    // Execute as much as we can totally within shared memory...
     int iout = 0;
-    for (int d = 0; d < dmax; ++d) {
-        iout = d & 1;  // 0 1 0 1 ...
+    for (int d = 0; d < blockdmax; ++d) {
+        iout ^= 1;
         int *tmpout = tmp[iout];
         int *tmpin = tmp[iout ^ 1];
         if (k < len) {
-            int k1 = k - (1 << d);
-            if (k1 >= 0) {
-                tmpout[k] = tmpin[k] + tmpin[k1];
+            int t1 = t - (1 << d);
+            if (t1 >= 0) {
+                tmpout[t] = tmpin[t] + tmpin[t1];
             } else {
-                tmpout[k] = tmpin[k];
+                tmpout[t] = tmpin[t];
             }
         }
         __syncthreads();
     }
-
-    out[k] = tmp[iout][t];
-}
-
-int *prefix_sum(const int *in, const int len)
-{
-    if (len > BLOCK_SIZE) {
-        throw;
+    if (k < len) {
+        out[k] = tmp[iout][t];
     }
 
+    // And the rest needs to be done globally after this completes.
+}
+
+__global__ void prefix_sum_inner_global(
+        const int len, const int bs, const int *in, int *out)
+{
+    int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (k < len) {
+        int sum = in[k];
+        for (int i = bs - 1; i < k; i += bs) {
+            sum += in[i];
+        }
+        out[k] = sum;
+    }
+}
+
+int *prefix_sum(const int len, const int *in)
+{
     const dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     const dim3 TPB(BLOCK_SIZE);
 
@@ -99,22 +135,32 @@ int *prefix_sum(const int *in, const int len)
     int *out = new int[len];
 
     // Create arrays for input and output
-    int *dev_in, *dev_out;
-    cudaMalloc(&dev_in, len * sizeof(int));
-    cudaMalloc(&dev_out, len * sizeof(int));
+    int *dev_arrs[2];
+    cudaMalloc(&dev_arrs[0], len * sizeof(int));
+    cudaMalloc(&dev_arrs[1], len * sizeof(int));
     CHECK_ERROR("malloc");
 
     // Copy input values to GPU
-    cudaMemcpy(dev_in, in, len * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_arrs[0], in, len * sizeof(int), cudaMemcpyHostToDevice);
     CHECK_ERROR("input memcpy");
 
-    const int dmax = ceil(log2((float) len));
-    prefix_sum_inner<<<BS, TPB>>>(len, dmax, dev_in, dev_out);
+    // Do what we can with shared memory
+    const int blockdmax = ilog2(BLOCK_SIZE);
+    prefix_sum_inner_shared<<<BS, TPB>>>(len, blockdmax, dev_arrs[0], dev_arrs[1]);
+    CHECK_ERROR("prefix_sum_inner_shared");
+
+    // Finish off globally
+    prefix_sum_inner_global<<<BS, TPB>>>(len, BLOCK_SIZE, dev_arrs[1], dev_arrs[0]);
+    CHECK_ERROR("prefix_sum_inner_global");
 
     // Copy the result value back to the CPU
     out[0] = 0;
-    cudaMemcpy(&out[1], dev_out, (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&out[1], dev_arrs[0], (len - 1) * sizeof(int), cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
+
+    cudaFree(dev_arrs[0]);
+    cudaFree(dev_arrs[1]);
+    CHECK_ERROR("free");
 
     return out;
 }
