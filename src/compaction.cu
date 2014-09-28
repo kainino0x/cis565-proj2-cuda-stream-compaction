@@ -57,7 +57,7 @@ int *prefix_sum_naive(const int len, const int *in)
     // Do each of the log(n) steps as a separate kernel call
     int iout = 0;  // init to i_in then it gets flipped
     const int dmax = ilog2ceil(len);
-#if DEBUG
+#if 1
     cudaEvent_t ev0;
     cudaEvent_t ev1;
     cudaEventCreate(&ev0);
@@ -69,7 +69,7 @@ int *prefix_sum_naive(const int len, const int *in)
         prefix_sum_naive_inner<<<BS, TPB>>>(
                 len, 1, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
-#if DEBUG
+#if 1
     cudaEventRecord(ev1, 0);
     cudaEventSynchronize(ev1);
     float t;
@@ -152,33 +152,32 @@ int *prefix_sum(const int len, const int *in)
     CHECK_ERROR("input memcpy");
 
     // Do what we can with shared memory
-    const int blockdmax = ilog2(BLOCK_SIZE);
-    prefix_sum_inner_shared<<<BS, TPB>>>(len, blockdmax, dev_arrs[0], dev_arrs[1]);
-    CHECK_ERROR("prefix_sum_inner_shared");
-
-    // Finish off globally
-    int iout = 1;  // init to i_in then it gets flipped
-    const int dmax = ilog2ceil((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
-#if DEBUG
+#if 1
     cudaEvent_t ev0;
     cudaEvent_t ev1;
     cudaEventCreate(&ev0);
     cudaEventCreate(&ev1);
     cudaEventRecord(ev0, 0);
 #endif
+    const int blockdmax = ilog2(BLOCK_SIZE);
+    prefix_sum_inner_shared<<<BS, TPB>>>(len, blockdmax, dev_arrs[0], dev_arrs[1]);
+
+    // Finish off globally
+    int iout = 1;  // init to i_in then it gets flipped
+    const int dmax = ilog2ceil((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     for (int d = 0; d < dmax; ++d) {
         iout ^= 1;
         prefix_sum_naive_inner<<<BS, TPB>>>(
                 len, BLOCK_SIZE, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
-#if DEBUG
+#if 1
     cudaEventRecord(ev1, 0);
     cudaEventSynchronize(ev1);
     float t;
     cudaEventElapsedTime(&t, ev0, ev1);
     timing += t;
 #endif
-    CHECK_ERROR("prefix_sum_inner_global");
+    CHECK_ERROR("prefix_sum_inner");
 
     // Copy the result value back to the CPU
     out[0] = 0;
