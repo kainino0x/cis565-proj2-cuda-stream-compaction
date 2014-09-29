@@ -2,13 +2,14 @@
 #include <cstdio>
 #include <ctime>
 
+#include "cuda_helpers.h"
 #include "prefix_sum.h"
 #include "compaction.h"
 
 #define MAXVAL 5
 #define ITERS 5
 static int MAXLEN = 1024 * 1024 * 64;
-static int LEN = 100000;
+static int LEN = 20;
 
 
 bool test_equality(const int len, const T *a, const T *b)
@@ -22,11 +23,21 @@ bool test_equality(const int len, const T *a, const T *b)
 }
 
 void test_impl(const int len, const T *in, const T *exp,
-        T *(*f)(const int, const T*))
+        void (*f)(const int, T *, T *))
 {
-    T *out = f(len, in);
-    //for (int i = 0; i < len; ++i) { printf("%2.0f ",  in[i]); } printf("\n");
-    //for (int i = 0; i < len; ++i) { printf("%2.0f ", out[i]); } printf("\n");
+    T *dev_in = mallocopy(len, in);
+    T *dev_out;
+    cudaMalloc(&dev_out, len * sizeof(T));
+
+    f(len, dev_in, dev_out);
+
+    T *out = new T[len];
+    cudaMemcpy(out, dev_out, len * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaFree(dev_in);
+    cudaFree(dev_out);
+
+    //for (int i = 0; i < len; ++i) { printf("%2d ",  in[i]); } printf("\n");
+    //for (int i = 0; i < len; ++i) { printf("%2d ", out[i]); } printf("\n");
     if (out != NULL && test_equality(len, exp, out)) {
         printf("pass\n");
     } else {
@@ -41,8 +52,12 @@ int main()
     T *in = new T[MAXLEN];
     for (int i = 0; i < MAXLEN; ++i) { in[i] = rand() % MAXVAL; }
     T *exp = new T[MAXLEN];
+    int *scatterout = new int[MAXLEN];
 
 #if 1
+    T *dev_out;
+    cudaMalloc(&dev_out, LEN * sizeof(int));
+
     prefix_sum_cpu(LEN, in, exp);
 
     printf("prefix_sum_naive:\n");
@@ -51,8 +66,42 @@ int main()
     printf("prefix_sum:\n");
     test_impl(LEN, in, exp, prefix_sum);
 
-    printf("prefix_sum_eff:\n");
-    test_impl(LEN, in, exp, prefix_sum_eff);
+    //printf("prefix_sum_eff:\n");
+    //test_impl(LEN, in, exp, prefix_sum_eff);
+
+    printf("scatter_cpu:\n");
+    scatter_cpu(LEN, in, scatterout);
+    for (int i = 0; i < LEN; ++i) { printf("%2d ", in[i]); } printf("\n");
+    for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+
+    printf("scatter:\n");
+    {
+        T *dev_in = mallocopy(LEN, in);
+        scatter(LEN, dev_in, dev_out);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaFree(dev_in);
+    }
+    for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+
+    printf("compact:\n");
+    {
+        T *dev_in = mallocopy(LEN, in);
+        int len = compact(LEN, dev_in, dev_out);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaFree(dev_in);
+        for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+    }
+
+    printf("compact_thrust:\n");
+    {
+        T *dev_in = mallocopy(LEN, in);
+        int len = compact_thrust(LEN, dev_in, dev_out);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaFree(dev_in);
+        for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+    }
+
+    cudaFree(dev_out);
 
 #else
     for (LEN = 256; LEN <= MAXLEN; LEN *= 2) {

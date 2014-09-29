@@ -1,4 +1,5 @@
 #include <cmath>
+#include <thrust/copy.h>
 
 #include "compaction.h"
 #include "cuda_helpers.h"
@@ -37,23 +38,16 @@ __global__ void prefix_sum_naive_inner(
     }
 }
 
-T *prefix_sum_naive(const int len, const T *in)
+void prefix_sum_naive(const int len, T *dev_in, T *dev_out)
 {
     dim3 BC((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 TPB(BLOCK_SIZE);
 
-    // Output host array
-    T *out = new T[len];
-
     // Create two arrays and alternate between them when calculating
     T *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], len * sizeof(T));
+    dev_arrs[0] = dev_in;
     cudaMalloc(&dev_arrs[1], len * sizeof(T));
     CHECK_ERROR("malloc");
-
-    // Copy input values to GPU
-    cudaMemcpy(dev_arrs[0], in, len * sizeof(T), cudaMemcpyHostToDevice);
-    CHECK_ERROR("input memcpy");
 
     // Do each of the log(n) steps as a separate kernel call
     int iout = 0;  // init to i_in then it gets flipped
@@ -79,17 +73,14 @@ T *prefix_sum_naive(const int len, const T *in)
 #endif
     CHECK_ERROR("prefix_sum_naive_inner");
 
-    // Copy the result value back to the CPU
-    out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(T),
-            cudaMemcpyDeviceToHost);
+    // Copy the result value into the output array
+    const T zero = 0;
+    cudaMemcpy(dev_out, &zero, sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(&dev_out[1], dev_arrs[iout], (len - 1) * sizeof(T), cudaMemcpyDeviceToDevice);
     CHECK_ERROR("result memcpy");
 
-    cudaFree(dev_arrs[0]);
     cudaFree(dev_arrs[1]);
     CHECK_ERROR("free");
-
-    return out;
 }
 
 
@@ -129,28 +120,16 @@ __global__ void prefix_sum_inner_shared(
     // And the rest needs to be done globally after this completes.
 }
 
-/// Prefix sum implementation using shared memory.
-/// Currently this is kind of dumb: it takes CPU memory, copies it,
-/// then allocates more CPU memory and copies the result back.
-/// Later I'll need to factor some of that out so I can actually use this
-/// algorithm in a bigger GPU pipeline.
-T *prefix_sum(const int len, const T *in)
+void prefix_sum(const int len, T *dev_in, T *dev_out)
 {
-    const dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const dim3 BC((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     const dim3 TPB(BLOCK_SIZE);
-
-    // Output host array
-    T *out = new T[len];
 
     // Create arrays for input and output
     T *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], len * sizeof(T));
+    dev_arrs[0] = dev_in;
     cudaMalloc(&dev_arrs[1], len * sizeof(T));
     CHECK_ERROR("malloc");
-
-    // Copy input values to GPU
-    cudaMemcpy(dev_arrs[0], in, len * sizeof(T), cudaMemcpyHostToDevice);
-    CHECK_ERROR("input memcpy");
 
     // Do what we can with shared memory
 #if TIMING
@@ -161,14 +140,14 @@ T *prefix_sum(const int len, const T *in)
     cudaEventRecord(ev0, 0);
 #endif
     const int blockdmax = ilog2(BLOCK_SIZE);
-    prefix_sum_inner_shared<<<BS, TPB>>>(len, blockdmax, dev_arrs[0], dev_arrs[1]);
+    prefix_sum_inner_shared<<<BC, TPB>>>(len, blockdmax, dev_arrs[0], dev_arrs[1]);
 
     // Finish off globally
     int iout = 1;  // init to i_in then it gets flipped
     const int dmax = ilog2ceil((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     for (int d = 0; d < dmax; ++d) {
         iout ^= 1;
-        prefix_sum_naive_inner<<<BS, TPB>>>(
+        prefix_sum_naive_inner<<<BC, TPB>>>(
                 len, BLOCK_SIZE, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
 #if TIMING
@@ -180,16 +159,14 @@ T *prefix_sum(const int len, const T *in)
 #endif
     CHECK_ERROR("prefix_sum_inner");
 
-    // Copy the result value back to the CPU
-    out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(T), cudaMemcpyDeviceToHost);
+    // Copy the result value into the output array
+    const T zero = 0;
+    cudaMemcpy(dev_out, &zero, sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(&dev_out[1], dev_arrs[iout], (len - 1) * sizeof(T), cudaMemcpyDeviceToDevice);
     CHECK_ERROR("result memcpy");
 
-    cudaFree(dev_arrs[0]);
     cudaFree(dev_arrs[1]);
     CHECK_ERROR("free");
-
-    return out;
 }
 
 
@@ -246,34 +223,22 @@ __global__ void prefix_sum_eff_inner(const int len, const T *in, T *out)
     }
 }
 
-/// Prefix sum implementation using shared memory.
-/// Currently this is kind of dumb: it takes CPU memory, copies it,
-/// then allocates more CPU memory and copies the result back.
-/// Later I'll need to factor some of that out so I can actually use this
-/// algorithm in a bigger GPU pipeline.
-T *prefix_sum_eff(const int len, const T *in)
+void prefix_sum_eff(const int len, T *dev_in, T *dev_out)
 {
     const int _bs = BLOCK_SIZE * 2;
     if (len > _bs) {
-        return NULL;
+        return;
     }
     const int _bc = (len + _bs - 1) / _bs;
     const dim3 BC(_bc);
     const dim3 TPB(BLOCK_SIZE);
     const int lenplus = _bc * _bs;
 
-    // Output host array
-    T *out = new T[len];
-
     // Create arrays for input and output
     T *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], lenplus * sizeof(T));
+    dev_arrs[0] = dev_in;
     cudaMalloc(&dev_arrs[1], lenplus * sizeof(T));
     CHECK_ERROR("malloc");
-
-    // Copy input values to GPU : 0
-    cudaMemcpy(dev_arrs[0], in, len * sizeof(T), cudaMemcpyHostToDevice);
-    CHECK_ERROR("input memcpy");
 
 #if TIMING
     cudaEvent_t ev0;
@@ -292,13 +257,81 @@ T *prefix_sum_eff(const int len, const T *in)
 #endif
     CHECK_ERROR("prefix_sum_eff_inner");
 
-    // Copy the result value back to the CPU
-    cudaMemcpy(out, dev_arrs[1], len * sizeof(T), cudaMemcpyDeviceToHost);
+    // Copy the result value into the output array
+    cudaMemcpy(dev_out, dev_arrs[1], (len - 1) * sizeof(T), cudaMemcpyDeviceToDevice);
     CHECK_ERROR("result memcpy");
 
     cudaFree(dev_arrs[0]);
     cudaFree(dev_arrs[1]);
     CHECK_ERROR("free");
+}
 
-    return out;
+
+__global__ void scatter_inner(const int len, const T *in, int *out)
+{
+    const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (k < len) {
+        out[k] = in[k] == 0 ? 0 : 1;
+    }
+}
+
+void scatter(const int len, const T *dev_in, int *dev_out)
+{
+    const dim3 BC((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const dim3 TPB(BLOCK_SIZE);
+
+    int *dev_tmp;
+    cudaMalloc(&dev_tmp, len * sizeof(int));
+
+    scatter_inner<<<BC, TPB>>>(len, dev_in, dev_tmp);
+    prefix_sum(len, dev_tmp, dev_out);
+
+    cudaFree(dev_tmp);
+}
+
+
+__global__ void compact_inner(const int len, const T *in, T *out, int *indices)
+{
+    const int k = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (k < len) {
+        int i = indices[k];
+        int v = in[k];
+        if (v != 0) {
+            out[i] = v;
+        }
+    }
+}
+
+int compact(const int len, const T *dev_in, int *dev_out)
+{
+    dim3 BC((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    dim3 TPB(BLOCK_SIZE);
+
+    int *dev_tmp;
+    cudaMalloc(&dev_tmp, len * sizeof(int));
+
+    scatter(len, dev_in, dev_tmp);
+
+    int finallen;
+    cudaMemcpy(&finallen, &dev_tmp[len - 1], sizeof(int), cudaMemcpyDeviceToHost);
+
+    compact_inner<<<BC, TPB>>>(len, dev_in, dev_out, dev_tmp);
+
+    cudaFree(dev_tmp);
+    return finallen + 1;
+}
+
+
+struct is_nonzero
+{
+    __host__ __device__ bool operator()(const T x)
+    {
+        return x != 0;
+    }
+};
+
+int compact_thrust(const int len, const T *dev_in, int *dev_out)
+{
+    int *end = thrust::copy_if(dev_in, dev_in + len, dev_out, is_nonzero());
+    return end - dev_out;
 }

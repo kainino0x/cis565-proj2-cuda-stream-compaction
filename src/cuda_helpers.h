@@ -21,3 +21,13 @@ inline void checkCUDAError(
         throw;
     }
 }
+
+/// cudaMalloc + copy to GPU
+template<typename S>
+inline S *mallocopy(const int len, const S *in)
+{
+    S *out;
+    cudaMalloc(&out, len * sizeof(S));
+    cudaMemcpy(out, in, len * sizeof(S), cudaMemcpyHostToDevice);
+    return out;
+}
