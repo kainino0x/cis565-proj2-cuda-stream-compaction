@@ -13,8 +13,8 @@ if(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang|GNU")
 endif()
 
 list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_20,code=sm_20)
-list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_30,code=sm_30)
-list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_35,code=sm_35)
+#list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_30,code=sm_30)
+#list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_35,code=sm_35)
 list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_50,code=sm_50)
 
 add_library(prefix_sum

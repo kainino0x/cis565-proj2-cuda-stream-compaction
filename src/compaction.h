@@ -1,6 +1,6 @@
 #pragma once
 
-static const int BLOCK_SIZE = 1024;
+static const int BLOCK_SIZE = 256;
 
 extern float timing;
 

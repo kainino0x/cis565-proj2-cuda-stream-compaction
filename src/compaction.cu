@@ -94,6 +94,63 @@ float *prefix_sum_naive(const int len, const float *in)
 
 __global__ void prefix_sum_inner(const int len, const float *in, float *out)
 {
+    extern __shared__ float temp[];
+    int thid = threadIdx.x;
+    int offset = 1;
+
+    {
+        int ai = 2 * thid;
+        int bi = ai + 1;
+        if (bi < len) {
+            temp[ai] = in[ai];
+            temp[bi] = in[bi];
+        }
+    }
+
+    // "Build sum in place up the tree"
+    for (int d = len >> 1; d > 0; d >>= 1) {
+        __syncthreads();
+        if (thid < d) {
+            int ai = offset * (2 * thid + 1) - 1;
+            int bi = offset * (2 * thid + 2) - 1;
+            if (bi < len) {
+                temp[bi] += temp[ai];
+            }
+        }
+        offset *= 2;
+    }
+
+    // "Clear the last element"
+    __syncthreads();
+    if (thid == 0) {
+        temp[len - 1] = 0;
+    }
+
+    // "Traverse down tree & build scan"
+    for (int d = 1; d < len; d *= 2) {
+        offset >>= 1;
+        __syncthreads();
+        if (thid < d) {
+            int ai = offset * (2 * thid + 1) - 1;
+            int bi = offset * (2 * thid + 2) - 1;
+            if (bi < len) {
+                float t = temp[ai];
+                temp[ai] = temp[bi];
+                temp[bi] += t;
+            }
+        }
+    }
+
+    // "Write results to device memory"
+    __syncthreads();
+    {
+        int ai = 2 * thid;
+        int bi = ai + 1;
+        if (bi < len) {
+            out[ai] = temp[ai];
+            out[bi] = temp[bi];
+        }
+    }
 }
 
 /// Prefix sum implementation using shared memory.
@@ -115,16 +172,16 @@ float *prefix_sum(const int len, const float *in)
     cudaMalloc(&dev_arrs[1], len * sizeof(float));
     CHECK_ERROR("malloc");
 
-    // Copy input values to GPU
+    // Copy input values to GPU : 0
     cudaMemcpy(dev_arrs[0], in, len * sizeof(float), cudaMemcpyHostToDevice);
     CHECK_ERROR("input memcpy");
 
     // TODO
-    int iout = 0;
+    prefix_sum_inner<<<BS, TPB, BLOCK_SIZE>>>(len, dev_arrs[0], dev_arrs[1]);
+    CHECK_ERROR("prefix_sum_inner");
 
     // Copy the result value back to the CPU
-    out[0] = 0;
-    cudaMemcpy(&out[1], dev_arrs[iout], (len - 1) * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(out, dev_arrs[1], len * sizeof(float), cudaMemcpyDeviceToHost);
     CHECK_ERROR("result memcpy");
 
     cudaFree(dev_arrs[0]);

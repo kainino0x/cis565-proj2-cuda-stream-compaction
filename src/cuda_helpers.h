@@ -13,6 +13,7 @@
 inline void checkCUDAError(
         const char *msg, const char *file, const char *func, int line)
 {
+    cudaDeviceSynchronize();
     cudaError_t err = cudaGetLastError();
     if (cudaSuccess != err) {
         fprintf(stderr, "%s:%d: %s\n    CUDA Error: %s - %s\n",

@@ -5,10 +5,10 @@
 #include "prefix_sum.h"
 #include "compaction.h"
 
-#define MAXVAL 100
+#define MAXVAL 5
 #define ITERS 5
 static int MAXLEN = 1024 * 1024 * 64;
-static int LEN = 100000;
+static int LEN = 16;
 
 
 bool test_equality(const int len, const float *a, const float *b)
@@ -25,6 +25,8 @@ void test_impl(const int len, const float *in, const float *exp,
         float *(*f)(const int, const float*))
 {
     float *out = f(len, in);
+    for (int i = 0; i < len; ++i) { printf("%2.0f ",  in[i]); } printf("\n");
+    for (int i = 0; i < len; ++i) { printf("%2.0f ", out[i]); } printf("\n");
     if (test_equality(len, exp, out)) {
         printf("pass\n");
     } else {
@@ -42,12 +44,13 @@ int main()
 
     prefix_sum_cpu(LEN, in, exp);
 
-    printf("prefix_sum_naive: ");
+    printf("prefix_sum_naive:\n");
     test_impl(LEN, in, exp, prefix_sum_naive);
 
-    printf("prefix_sum: ");
+    printf("prefix_sum:\n");
     test_impl(LEN, in, exp, prefix_sum);
 
+#if 0
     for (LEN = 256; LEN <= MAXLEN; LEN *= 2) {
 #if __linux__
         struct timespec ts1, ts2;
@@ -73,6 +76,7 @@ int main()
         }
         printf("shared,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
     }
+#endif
 
     delete[] in;
     delete[] exp;
