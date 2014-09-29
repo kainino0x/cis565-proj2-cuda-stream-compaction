@@ -8,7 +8,7 @@
 #define MAXVAL 5
 #define ITERS 5
 static int MAXLEN = 1024 * 1024 * 64;
-static int LEN = 20;
+static int LEN = 100000;
 
 
 bool test_equality(const int len, const float *a, const float *b)
@@ -25,9 +25,9 @@ void test_impl(const int len, const float *in, const float *exp,
         float *(*f)(const int, const float*))
 {
     float *out = f(len, in);
-    for (int i = 0; i < len; ++i) { printf("%2.0f ",  in[i]); } printf("\n");
-    for (int i = 0; i < len; ++i) { printf("%2.0f ", out[i]); } printf("\n");
-    if (test_equality(len, exp, out)) {
+    //for (int i = 0; i < len; ++i) { printf("%2.0f ",  in[i]); } printf("\n");
+    //for (int i = 0; i < len; ++i) { printf("%2.0f ", out[i]); } printf("\n");
+    if (out != NULL && test_equality(len, exp, out)) {
         printf("pass\n");
     } else {
         printf("FAIL\n");
@@ -42,17 +42,21 @@ int main()
     for (int i = 0; i < MAXLEN; ++i) { in[i] = rand() % MAXVAL; }
     float *exp = new float[MAXLEN];
 
+#if 0
     prefix_sum_cpu(LEN, in, exp);
 
     printf("prefix_sum_naive:\n");
     test_impl(LEN, in, exp, prefix_sum_naive);
 
+    printf("prefix_sum:\n");
+    test_impl(LEN, in, exp, prefix_sum);
+
     printf("prefix_sum_eff:\n");
     test_impl(LEN, in, exp, prefix_sum_eff);
 
-#if 0
+#else
     for (LEN = 256; LEN <= MAXLEN; LEN *= 2) {
-#if __linux__
+#   if __linux__
         struct timespec ts1, ts2;
         clock_gettime(CLOCK_MONOTONIC, &ts1);
         for (int i = 0; i < ITERS; ++i) {
@@ -62,7 +66,7 @@ int main()
         double t1 = ts1.tv_sec * 1e3 + ts1.tv_nsec * 1e-6;
         double t2 = ts2.tv_sec * 1e3 + ts2.tv_nsec * 1e-6;
         printf("cpu,%d,%d,%e\n", 0, LEN, (t2 - t1) / ITERS);
-#endif
+#   endif
 
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
@@ -72,12 +76,18 @@ int main()
 
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
-            prefix_sum_eff(LEN, in);
+            prefix_sum(LEN, in);
         }
         printf("shared,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
+
+        timing = 0;
+        for (int i = 0; i < ITERS; ++i) {
+            prefix_sum_eff(LEN, in);
+        }
+        printf("eff,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
     }
 #endif
 
-    delete[] in;
     delete[] exp;
+    delete[] in;
 }
