@@ -9,7 +9,7 @@
 #define MAXVAL 5
 #define ITERS 5
 static int MAXLEN = 1024 * 1024 * 64;
-static int LEN = 20;
+static int LEN = 1000000;
 
 
 bool test_equality(const int len, const T *a, const T *b)
@@ -72,26 +72,26 @@ int main()
     //test_impl(LEN, in, exp, prefix_sum_eff);
 
     printf("scatter_cpu:\n");
-    scatter_cpu(LEN, in, scatterout);
-    for (int i = 0; i < LEN; ++i) { printf("%2d ", in[i]); } printf("\n");
-    for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+    scatter_cpu(LEN, in, exp);
+    //for (int i = 0; i < LEN; ++i) { printf("%2d ", in[i]); } printf("\n");
+    //for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
 
     printf("scatter:\n");
     {
         cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         scatter(LEN, dev_in, dev_out);
         cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
-        cudaFree(dev_in);
+
+		printf(test_equality(LEN, exp, scatterout) ? "pass\n" : "FAIL\n");
     }
-    for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+    //for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
 
     printf("compact:\n");
     {
         cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         int len = compact(LEN, dev_in, dev_out);
-        cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
-        cudaFree(dev_in);
-        for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+        cudaMemcpy(exp, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
+        //for (int i = 0; i < len; ++i) { printf("%2d ", exp[i]); } printf("\n");
     }
 
     printf("compact_thrust:\n");
@@ -99,8 +99,9 @@ int main()
         cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         int len = compact_thrust(LEN, dev_in, dev_out);
         cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
-        cudaFree(dev_in);
-        for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
+
+		printf(test_equality(len, exp, scatterout) ? "pass\n" : "FAIL\n");
+        //for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
     }
 
     cudaFree(dev_out);

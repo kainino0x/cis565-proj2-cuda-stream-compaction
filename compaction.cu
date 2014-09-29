@@ -345,7 +345,7 @@ int compact(const int len, const T *dev_in, int *dev_out)
     cudaMemcpy(&finallen, &dev_tmp[len - 1], sizeof(int), cudaMemcpyDeviceToHost);
 
     cudaFree(dev_tmp);
-    return finallen + 1;
+    return finallen;
 }
 
 
