@@ -7,4 +7,4 @@ extern float timing;
 
 float *prefix_sum_naive(const int len, const float *in);
 
-float *prefix_sum(const int len, const float *in);
+float *prefix_sum_eff(const int len, const float *in);

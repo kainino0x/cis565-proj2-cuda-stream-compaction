@@ -8,7 +8,7 @@
 #define MAXVAL 5
 #define ITERS 5
 static int MAXLEN = 1024 * 1024 * 64;
-static int LEN = 16;
+static int LEN = 20;
 
 
 bool test_equality(const int len, const float *a, const float *b)
@@ -47,8 +47,8 @@ int main()
     printf("prefix_sum_naive:\n");
     test_impl(LEN, in, exp, prefix_sum_naive);
 
-    printf("prefix_sum:\n");
-    test_impl(LEN, in, exp, prefix_sum);
+    printf("prefix_sum_eff:\n");
+    test_impl(LEN, in, exp, prefix_sum_eff);
 
 #if 0
     for (LEN = 256; LEN <= MAXLEN; LEN *= 2) {
@@ -72,7 +72,7 @@ int main()
 
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
-            prefix_sum(LEN, in);
+            prefix_sum_eff(LEN, in);
         }
         printf("shared,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
     }

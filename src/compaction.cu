@@ -38,7 +38,7 @@ __global__ void prefix_sum_naive_inner(
 
 float *prefix_sum_naive(const int len, const float *in)
 {
-    dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    dim3 BC((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 TPB(BLOCK_SIZE);
 
     // Output host array
@@ -66,7 +66,7 @@ float *prefix_sum_naive(const int len, const float *in)
 #endif
     for (int d = 0; d < dmax; ++d) {
         iout ^= 1;
-        prefix_sum_naive_inner<<<BS, TPB>>>(
+        prefix_sum_naive_inner<<<BC, TPB>>>(
                 len, 1, d, dev_arrs[iout ^ 1], dev_arrs[iout]);
     }
 #if 1
@@ -92,7 +92,7 @@ float *prefix_sum_naive(const int len, const float *in)
 }
 
 
-__global__ void prefix_sum_inner(const int len, const float *in, float *out)
+__global__ void prefix_sum_eff_inner(const int len, const float *in, float *out)
 {
     extern __shared__ float temp[];
     int thid = threadIdx.x;
@@ -101,10 +101,8 @@ __global__ void prefix_sum_inner(const int len, const float *in, float *out)
     {
         int ai = 2 * thid;
         int bi = ai + 1;
-        if (bi < len) {
-            temp[ai] = in[ai];
-            temp[bi] = in[bi];
-        }
+        temp[ai] = in[ai];
+        temp[bi] = in[bi];
     }
 
     // "Build sum in place up the tree"
@@ -113,11 +111,9 @@ __global__ void prefix_sum_inner(const int len, const float *in, float *out)
         if (thid < d) {
             int ai = offset * (2 * thid + 1) - 1;
             int bi = offset * (2 * thid + 2) - 1;
-            if (bi < len) {
-                temp[bi] += temp[ai];
-            }
+            temp[bi] += temp[ai];
         }
-        offset *= 2;
+        offset <<= 1;
     }
 
     // "Clear the last element"
@@ -127,17 +123,15 @@ __global__ void prefix_sum_inner(const int len, const float *in, float *out)
     }
 
     // "Traverse down tree & build scan"
-    for (int d = 1; d < len; d *= 2) {
+    for (int d = 1; d < len; d <<= 1) {
         offset >>= 1;
         __syncthreads();
         if (thid < d) {
             int ai = offset * (2 * thid + 1) - 1;
             int bi = offset * (2 * thid + 2) - 1;
-            if (bi < len) {
-                float t = temp[ai];
-                temp[ai] = temp[bi];
-                temp[bi] += t;
-            }
+            float t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
         }
     }
 
@@ -146,10 +140,8 @@ __global__ void prefix_sum_inner(const int len, const float *in, float *out)
     {
         int ai = 2 * thid;
         int bi = ai + 1;
-        if (bi < len) {
-            out[ai] = temp[ai];
-            out[bi] = temp[bi];
-        }
+        out[ai] = temp[ai];
+        out[bi] = temp[bi];
     }
 }
 
@@ -158,18 +150,21 @@ __global__ void prefix_sum_inner(const int len, const float *in, float *out)
 /// then allocates more CPU memory and copies the result back.
 /// Later I'll need to factor some of that out so I can actually use this
 /// algorithm in a bigger GPU pipeline.
-float *prefix_sum(const int len, const float *in)
+float *prefix_sum_eff(const int len, const float *in)
 {
-    const dim3 BS((len + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const int _bs = BLOCK_SIZE * 2;
+    const int _bc = (len + _bs - 1) / _bs;
+    const dim3 BC(_bc);
     const dim3 TPB(BLOCK_SIZE);
+    const int lenplus = _bc * _bs;
 
     // Output host array
     float *out = new float[len];
 
     // Create arrays for input and output
     float *dev_arrs[2];
-    cudaMalloc(&dev_arrs[0], len * sizeof(float));
-    cudaMalloc(&dev_arrs[1], len * sizeof(float));
+    cudaMalloc(&dev_arrs[0], lenplus * sizeof(float));
+    cudaMalloc(&dev_arrs[1], lenplus * sizeof(float));
     CHECK_ERROR("malloc");
 
     // Copy input values to GPU : 0
@@ -177,8 +172,8 @@ float *prefix_sum(const int len, const float *in)
     CHECK_ERROR("input memcpy");
 
     // TODO
-    prefix_sum_inner<<<BS, TPB, BLOCK_SIZE>>>(len, dev_arrs[0], dev_arrs[1]);
-    CHECK_ERROR("prefix_sum_inner");
+    prefix_sum_eff_inner<<<BC, TPB, _bs * sizeof(float)>>>(lenplus, dev_arrs[0], dev_arrs[1]);
+    CHECK_ERROR("prefix_sum_eff_inner");
 
     // Copy the result value back to the CPU
     cudaMemcpy(out, dev_arrs[1], len * sizeof(float), cudaMemcpyDeviceToHost);
