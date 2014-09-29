@@ -1,5 +1,6 @@
 #include <cmath>
 #include <thrust/copy.h>
+#include <thrust/execution_policy.h>
 
 #include "compaction.h"
 #include "cuda_helpers.h"
@@ -332,6 +333,6 @@ struct is_nonzero
 
 int compact_thrust(const int len, const T *dev_in, int *dev_out)
 {
-    int *end = thrust::copy_if(dev_in, dev_in + len, dev_out, is_nonzero());
+    int *end = thrust::copy_if(thrust::device, dev_in, dev_in + len, dev_out, is_nonzero());
     return end - dev_out;
 }
