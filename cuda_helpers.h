@@ -2,8 +2,12 @@
 
 #include <cstdio>
 
-#if DEBUG
+#define DEBUG 1
+
+#if DEBUG && defined(__func__)
 #define CHECK_ERROR(msg) (checkCUDAError((msg), __FILE__, __func__, __LINE__))
+#elif DEBUG
+#define CHECK_ERROR(msg) (checkCUDAError((msg), __FILE__, "", __LINE__))
 #else
 #define CHECK_ERROR(msg)
 #endif

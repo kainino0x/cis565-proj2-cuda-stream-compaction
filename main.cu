@@ -54,10 +54,11 @@ int main()
     T *exp = new T[MAXLEN];
 
     T *dev_in, *dev_out;
-    cudaMalloc(&dev_in , MAXLEN * sizeof(T));
-    cudaMalloc(&dev_out, MAXLEN * sizeof(T));
+	cudaMalloc(&dev_in , MAXLEN * sizeof(T));
+	cudaMalloc(&dev_out, MAXLEN * sizeof(T));
+	CHECK_ERROR("malloc");
 
-#if 0
+#if 1
     int *scatterout = new int[MAXLEN];
     prefix_sum_cpu(LEN, in, exp);
 
@@ -141,7 +142,7 @@ int main()
         printf("eff,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
 #endif
 
-#if 1
+#if 0
         cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {

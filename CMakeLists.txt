@@ -18,17 +18,17 @@ list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_20,code=sm_20)
 list(APPEND CUDA_NVCC_FLAGS -gencode arch=compute_50,code=sm_50)
 
 add_library(prefix_sum
-    "src/prefix_sum.h"
-    "src/prefix_sum.cpp"
+    "prefix_sum.h"
+    "prefix_sum.cpp"
     )
 
 cuda_add_library(compaction
-    "src/cuda_helpers.h"
-    "src/compaction.h"
-    "src/compaction.cu"
+    "cuda_helpers.h"
+    "compaction.h"
+    "compaction.cu"
     )
 
 cuda_add_executable(main
-    "src/main.cu"
+    "main.cu"
     )
 target_link_libraries(main prefix_sum compaction)
