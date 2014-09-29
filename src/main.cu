@@ -52,12 +52,13 @@ int main()
     T *in = new T[MAXLEN];
     for (int i = 0; i < MAXLEN; ++i) { in[i] = rand() % MAXVAL; }
     T *exp = new T[MAXLEN];
+
+    T *dev_in, *dev_out;
+    cudaMalloc(&dev_in , MAXLEN * sizeof(T));
+    cudaMalloc(&dev_out, MAXLEN * sizeof(T));
+
+#if 0
     int *scatterout = new int[MAXLEN];
-
-#if 1
-    T *dev_out;
-    cudaMalloc(&dev_out, LEN * sizeof(int));
-
     prefix_sum_cpu(LEN, in, exp);
 
     printf("prefix_sum_naive:\n");
@@ -76,35 +77,36 @@ int main()
 
     printf("scatter:\n");
     {
-        T *dev_in = mallocopy(LEN, in);
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         scatter(LEN, dev_in, dev_out);
-        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
         cudaFree(dev_in);
     }
     for (int i = 0; i < LEN; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
 
     printf("compact:\n");
     {
-        T *dev_in = mallocopy(LEN, in);
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         int len = compact(LEN, dev_in, dev_out);
-        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
         cudaFree(dev_in);
         for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
     }
 
     printf("compact_thrust:\n");
     {
-        T *dev_in = mallocopy(LEN, in);
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         int len = compact_thrust(LEN, dev_in, dev_out);
-        cudaMemcpy(scatterout, dev_out, LEN * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(scatterout, dev_out, LEN * sizeof(T), cudaMemcpyDeviceToHost);
         cudaFree(dev_in);
         for (int i = 0; i < len; ++i) { printf("%2d ", scatterout[i]); } printf("\n");
     }
 
     cudaFree(dev_out);
+#endif
 
-#else
     for (LEN = 256; LEN <= MAXLEN; LEN *= 2) {
+#if 0
 #   if __linux__
         struct timespec ts1, ts2;
         clock_gettime(CLOCK_MONOTONIC, &ts1);
@@ -117,25 +119,44 @@ int main()
         printf("cpu,%d,%d,%e\n", 0, LEN, (t2 - t1) / ITERS);
 #   endif
 
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
-            prefix_sum_naive(LEN, in);
+            prefix_sum_naive(LEN, dev_in, dev_out);
         }
         printf("naive,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
 
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
-            prefix_sum(LEN, in);
+            prefix_sum(LEN, dev_in, dev_out);
         }
         printf("shared,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
 
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
         timing = 0;
         for (int i = 0; i < ITERS; ++i) {
-            prefix_sum_eff(LEN, in);
+            prefix_sum_eff(LEN, dev_in, dev_out);
         }
         printf("eff,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
-    }
 #endif
+
+#if 1
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
+        timing = 0;
+        for (int i = 0; i < ITERS; ++i) {
+            compact(LEN, dev_in, dev_out);
+        }
+        printf("compact,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
+
+        cudaMemcpy(dev_in, in, LEN * sizeof(T), cudaMemcpyHostToDevice);
+        timing = 0;
+        for (int i = 0; i < ITERS; ++i) {
+            compact_thrust(LEN, dev_in, dev_out);
+        }
+        printf("compact_thrust,%d,%d,%e\n", BLOCK_SIZE, LEN, timing / ITERS);
+#endif
+    }
 
     delete[] exp;
     delete[] in;

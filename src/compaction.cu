@@ -262,7 +262,6 @@ void prefix_sum_eff(const int len, T *dev_in, T *dev_out)
     cudaMemcpy(dev_out, dev_arrs[1], (len - 1) * sizeof(T), cudaMemcpyDeviceToDevice);
     CHECK_ERROR("result memcpy");
 
-    cudaFree(dev_arrs[0]);
     cudaFree(dev_arrs[1]);
     CHECK_ERROR("free");
 }
@@ -284,7 +283,21 @@ void scatter(const int len, const T *dev_in, int *dev_out)
     int *dev_tmp;
     cudaMalloc(&dev_tmp, len * sizeof(int));
 
+#if TIMING
+    cudaEvent_t ev0;
+    cudaEvent_t ev1;
+    cudaEventCreate(&ev0);
+    cudaEventCreate(&ev1);
+    cudaEventRecord(ev0, 0);
+#endif
     scatter_inner<<<BC, TPB>>>(len, dev_in, dev_tmp);
+#if TIMING
+    cudaEventRecord(ev1, 0);
+    cudaEventSynchronize(ev1);
+    float t;
+    cudaEventElapsedTime(&t, ev0, ev1);
+    timing += t;
+#endif
     prefix_sum(len, dev_tmp, dev_out);
 
     cudaFree(dev_tmp);
@@ -311,12 +324,25 @@ int compact(const int len, const T *dev_in, int *dev_out)
     int *dev_tmp;
     cudaMalloc(&dev_tmp, len * sizeof(int));
 
+#if TIMING
+    cudaEvent_t ev0;
+    cudaEvent_t ev1;
+    cudaEventCreate(&ev0);
+    cudaEventCreate(&ev1);
+    cudaEventRecord(ev0, 0);
+#endif
     scatter(len, dev_in, dev_tmp);
+    compact_inner<<<BC, TPB>>>(len, dev_in, dev_out, dev_tmp);
+#if TIMING
+    cudaEventRecord(ev1, 0);
+    cudaEventSynchronize(ev1);
+    float t;
+    cudaEventElapsedTime(&t, ev0, ev1);
+    timing += t;
+#endif
 
     int finallen;
     cudaMemcpy(&finallen, &dev_tmp[len - 1], sizeof(int), cudaMemcpyDeviceToHost);
-
-    compact_inner<<<BC, TPB>>>(len, dev_in, dev_out, dev_tmp);
 
     cudaFree(dev_tmp);
     return finallen + 1;
@@ -333,6 +359,20 @@ struct is_nonzero
 
 int compact_thrust(const int len, const T *dev_in, int *dev_out)
 {
+#if TIMING
+    cudaEvent_t ev0;
+    cudaEvent_t ev1;
+    cudaEventCreate(&ev0);
+    cudaEventCreate(&ev1);
+    cudaEventRecord(ev0, 0);
+#endif
     int *end = thrust::copy_if(thrust::device, dev_in, dev_in + len, dev_out, is_nonzero());
+#if TIMING
+    cudaEventRecord(ev1, 0);
+    cudaEventSynchronize(ev1);
+    float t;
+    cudaEventElapsedTime(&t, ev0, ev1);
+    timing += t;
+#endif
     return end - dev_out;
 }
