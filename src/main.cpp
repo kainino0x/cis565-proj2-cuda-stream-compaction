@@ -11,7 +11,7 @@ static int MAXLEN = 1024 * 1024 * 64;
 static int LEN = 100000;
 
 
-bool test_equality(const int len, const float *a, const float *b)
+bool test_equality(const int len, const T *a, const T *b)
 {
     for (int i = 0; i < len; ++i) {
         if (a[i] != b[i]) {
@@ -21,10 +21,10 @@ bool test_equality(const int len, const float *a, const float *b)
     return true;
 }
 
-void test_impl(const int len, const float *in, const float *exp,
-        float *(*f)(const int, const float*))
+void test_impl(const int len, const T *in, const T *exp,
+        T *(*f)(const int, const T*))
 {
-    float *out = f(len, in);
+    T *out = f(len, in);
     //for (int i = 0; i < len; ++i) { printf("%2.0f ",  in[i]); } printf("\n");
     //for (int i = 0; i < len; ++i) { printf("%2.0f ", out[i]); } printf("\n");
     if (out != NULL && test_equality(len, exp, out)) {
@@ -38,11 +38,11 @@ int main()
 {
     srand(0);
 
-    float *in = new float[MAXLEN];
+    T *in = new T[MAXLEN];
     for (int i = 0; i < MAXLEN; ++i) { in[i] = rand() % MAXVAL; }
-    float *exp = new float[MAXLEN];
+    T *exp = new T[MAXLEN];
 
-#if 0
+#if 1
     prefix_sum_cpu(LEN, in, exp);
 
     printf("prefix_sum_naive:\n");
